@@ -14,6 +14,8 @@ use reqwest::blocking::Client;
 use reqwest::header::USER_AGENT;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use uuid::Builder;
 use uuid::Uuid;
 
 const USER_AGENT_STR: &str = "musefetch/0.0.1 (hismamoniz@gmail.com)";
@@ -22,25 +24,14 @@ const USER_AGENT_STR: &str = "musefetch/0.0.1 (hismamoniz@gmail.com)";
 // For efficiency, consider wrapping the file in a BufReader or BufWriter when performing many small read or write calls,
 // unless unbuffered reads and writes are required.
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 struct Artist {
     id: Uuid,
     type_: String,
-    type_id: Uuid,
     score: u8,
     name: String,
-    sort_name: String,
-    country: String,
     area: String,
-    albums: Vec<String>,
-}
-
-#[derive(Deserialize)]
-struct ArtistSearch {
-    created: String,
-    count: u16,
-    offset: u16,
-    artists: Vec<Artist>,
+    disambiguation: Option<String>,
 }
 
 fn main() {
@@ -67,10 +58,59 @@ fn query_artist(artist_name: &String) -> Result<()> {
         .send()?;
     let text = response.text()?;
 
-    let out = serde_json::from_str(&text)?;
+    let v: Value = serde_json::from_str(&text)?;
 
-    println!("{:#?}", out);
+    process_artist_query(&v);
+
+    // println!("{:#?}", v);
     Ok(())
+}
+
+fn process_artist_query(response: &Value) {
+    if response["artists"].is_array() {
+        println!("Detected artists array in response!")
+    } else {
+        panic!("No artists array in response.")
+    }
+
+    let artists = response["artists"].as_array().unwrap();
+    for artist in artists {
+        let area: String;
+        if !artist["begin-area"].is_null() {
+            area = artist["begin-area"]["name"].as_str().unwrap().to_owned();
+        } else if !artist["area"].is_null() {
+            area = artist["area"]["name"].as_str().unwrap().to_owned();
+        } else {
+            area = "Unknown origin".to_owned();
+        }
+
+        let artist_id_str = artist["id"].as_str().unwrap();
+        let id = Uuid::parse_str(artist_id_str);
+        if id.is_err() {
+            panic!("Error parsing artist id!");
+        }
+        let id = id.unwrap();
+        let name = artist["name"].as_str().unwrap().to_owned();
+        let score: u8 = artist["score"].as_u64().unwrap() as u8;
+        let type_ = artist["type"].as_str().unwrap().to_owned();
+        let disambiguation: Option<String>;
+        if !artist["disambiguation"].is_null() {
+            disambiguation = Some(artist["disambiguation"].as_str().unwrap().to_owned());
+        } else {
+            disambiguation = None;
+        }
+
+        let artist_struct = Artist {
+            id,
+            type_,
+            score,
+            area,
+            name,
+            disambiguation,
+        };
+
+        println!("{:#?}", artist_struct);
+    }
 }
 
 fn setup_artists() -> std::io::Result<()> {
