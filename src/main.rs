@@ -92,7 +92,13 @@ fn process_artist_query(response: &Value) {
         let id = id.unwrap();
         let name = artist["name"].as_str().unwrap().to_owned();
         let score: u8 = artist["score"].as_u64().unwrap() as u8;
-        let type_ = artist["type"].as_str().unwrap().to_owned();
+
+        let type_: String;
+        if !artist["type"].is_null() {
+            type_ = artist["type"].as_str().unwrap().to_owned();
+        } else {
+            type_ = "Unknown type".to_owned();
+        }
         let disambiguation: Option<String>;
         if !artist["disambiguation"].is_null() {
             disambiguation = Some(artist["disambiguation"].as_str().unwrap().to_owned());
