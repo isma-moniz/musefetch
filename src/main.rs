@@ -27,10 +27,11 @@ const USER_AGENT_STR: &str = "musefetch/0.0.1 (hismamoniz@gmail.com)";
 #[derive(Serialize, Deserialize, Debug)]
 struct Artist {
     id: Uuid,
-    type_: String,
+    type_: Option<String>,
     score: u8,
     name: String,
-    area: String,
+    area: Option<String>,
+    begin_area: Option<String>,
     disambiguation: Option<String>,
 }
 
@@ -58,15 +59,18 @@ fn query_artist(artist_name: &String) -> Result<()> {
         .send()?;
     let text = response.text()?;
 
-    let v: Value = serde_json::from_str(&text)?;
-
-    process_artist_query(&v);
+    if text.is_empty() {
+        println!("API unavailable right now...");
+    } else {
+        let v: Value = serde_json::from_str(&text)?;
+        process_artist_query(&v, 70);
+    }
 
     // println!("{:#?}", v);
     Ok(())
 }
 
-fn process_artist_query(response: &Value) {
+fn process_artist_query(response: &Value, threshold: u8) {
     if response["artists"].is_array() {
         println!("Detected artists array in response!")
     } else {
@@ -75,30 +79,56 @@ fn process_artist_query(response: &Value) {
 
     let artists = response["artists"].as_array().unwrap();
     for artist in artists {
-        let area: String;
+        // area
+        let area: Option<String>;
+        let begin_area: Option<String>;
         if !artist["begin-area"].is_null() {
-            area = artist["begin-area"]["name"].as_str().unwrap().to_owned();
-        } else if !artist["area"].is_null() {
-            area = artist["area"]["name"].as_str().unwrap().to_owned();
+            begin_area = Some(artist["begin-area"]["name"].as_str().unwrap().to_owned());
         } else {
-            area = "Unknown origin".to_owned();
+            begin_area = None;
+        }
+        if !artist["area"].is_null() {
+            area = Some(artist["area"]["name"].as_str().unwrap().to_owned());
+        } else {
+            area = None;
         }
 
+        // id
         let artist_id_str = artist["id"].as_str().unwrap();
         let id = Uuid::parse_str(artist_id_str);
         if id.is_err() {
             panic!("Error parsing artist id!");
         }
         let id = id.unwrap();
-        let name = artist["name"].as_str().unwrap().to_owned();
-        let score: u8 = artist["score"].as_u64().unwrap() as u8;
 
-        let type_: String;
-        if !artist["type"].is_null() {
-            type_ = artist["type"].as_str().unwrap().to_owned();
+        // name
+        let name: String;
+        if !artist["name"].is_null() {
+            name = artist["name"].as_str().unwrap().to_owned();
         } else {
-            type_ = "Unknown type".to_owned();
+            panic!("Error parsing artist name!");
         }
+
+        // score
+        let score: u8;
+        if !artist["score"].is_null() {
+            score = artist["score"].as_u64().unwrap() as u8;
+            if score < threshold {
+                continue;
+            }
+        } else {
+            continue; // TODO: need to think this over
+        }
+
+        // type
+        let type_: Option<String>;
+        if !artist["type"].is_null() {
+            type_ = Some(artist["type"].as_str().unwrap().to_owned());
+        } else {
+            type_ = None;
+        }
+
+        // disambiguation
         let disambiguation: Option<String>;
         if !artist["disambiguation"].is_null() {
             disambiguation = Some(artist["disambiguation"].as_str().unwrap().to_owned());
@@ -111,6 +141,7 @@ fn process_artist_query(response: &Value) {
             type_,
             score,
             area,
+            begin_area,
             name,
             disambiguation,
         };
@@ -126,7 +157,7 @@ fn setup_artists() -> std::io::Result<()> {
             path.push("musefetch");
             std::fs::create_dir_all(&path)?;
             path.push("loved_artists.txt");
-            let artists_file = File::create(path)?;
+            let _artists_file = File::create(path)?;
             Ok(())
         }
         None => panic!("Unable to set up home_dir!"),
